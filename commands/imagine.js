@@ -5,8 +5,12 @@ const fs = require('fs');
 const url = process.env.fooocusURL;
 let running = false;
 
+/*
+	CSS Selectors for Puppeteer to use
+		May need updating in future to keep up with fooocus HTML/CSS
+		Confirmed accurate as of Jan 2, 2025, fooocus V2.5.5 released Aug 12, 2024
+*/
 let ADVANCED_CHECKBOX = "#component-23 > label > input"
-let QUALITY_RADIOBOX = "[data-testid='Quality-radio-label']"
 let IMAGE_AMOUNT = "#component-221 > div > div > input[type='number']"
 let SEED_BOX = "#component-224 > label > input"
 let SEED_INPUT = "#component-225 > label > input"
@@ -16,8 +20,32 @@ let GENERATE_BUTTON = "#generate_button"
 let GENERATED_IMAGE = "div#final_gallery > div.grid-wrap > div.grid-container > button.thumbnail-item > img"
 let STYLE_TAB = "#component-335 > .tab-nav > button:nth-child(2)"
 let STYLE_CHECKBOX = "#component-231 > div[data-testid='checkbox-group'] > label:nth-child({n}) > input"
+const FooocusPerformance = {
+	Quality: "[data-testid='Quality-radio-label']", 
+	Speed: "[data-testid='Speed-radio-label']", 
+	ExtremeSpeed: "[data-testid='Extreme Speed-radio-label']", 
+	Lightning: "[data-testid='Lightning-radio-label']", 
+	HyperSD: "[data-testid='Hyper-SD-radio-label']" 
+}
 
-async function run (withPrompt, styleId = 1, quality = false, seedCustom = -1, negative = null) {
+/*
+	Configuration values
+*/
+
+// How long to let fooocus generate an image before timing out in milliseconds
+// ---
+let generateTimeout = 0 // No timeout
+//let generateTimeout = 120000 // 2 minute timeout
+
+// Default performance option, determines speed of generation, faster settings may lessen quality
+// ---
+//let defaultPerformance = 'Quality' // Quality: 0.5x speed (60 iterations)
+//let defaultPerformance = 'Speed' // Speed: base performance with 30 iterations
+//let defaultPerformance = 'ExtremeSpeed' // Extreme Speed: 2x speed (15 iterations)
+let defaultPerformance = 'Lightning' // Lightning: 3.75x speed (8 iterations)
+//let defaultPerformance = 'HyperSD' // Hyper-SD: 7.5x speed (4 iterations), requires Hyper SD lora which will download on first use if not already downloaded
+
+async function run (withPrompt, styleId = 1, performance, seedCustom = -1, negative = null) {
 	if (running) {
 		return "Error: Already running"
 	}
@@ -27,6 +55,10 @@ async function run (withPrompt, styleId = 1, quality = false, seedCustom = -1, n
 
 	if (seedCustom == null) {
 		seedCustom = -1
+	}
+
+	if (performance == null) {
+		performance = defaultPerformance
 	}
 
 	running = true;
@@ -45,13 +77,13 @@ async function run (withPrompt, styleId = 1, quality = false, seedCustom = -1, n
 	//input the number of image to genearte
 	// await page.waitForSelector("#component-17 > div.wrap.svelte-1cl284s > div > input"); 
 	// await page.type("#component-17 > div.wrap.svelte-1cl284s > div > input", "1");
-	//set to quality
-	if (quality) {
-		await page.waitForSelector(QUALITY_RADIOBOX)
-		await page.$eval(QUALITY_RADIOBOX, (e) => {
-			e.click()
-		})
-	}
+	
+	//Set Performance
+	await page.waitForSelector(FooocusPerformance[performance])
+	await page.$eval(FooocusPerformance[performance], (e) => {
+		e.click()
+	})
+
 
 	if (seedCustom != -1) {
 		console.log("setting seed to: " + seedCustom)
@@ -102,7 +134,7 @@ async function run (withPrompt, styleId = 1, quality = false, seedCustom = -1, n
 	await page.click(GENERATE_BUTTON);
 
 	//grab the src from the img
-	await page.waitForSelector(GENERATED_IMAGE, {timeout: 0});
+	await page.waitForSelector(GENERATED_IMAGE, {timeout: generateTimeout});
 	const src = await page.evaluate((selector) => {
 		console.log(selector);		
 		const imgSrc = document.querySelector(selector).src;
@@ -147,8 +179,26 @@ module.exports = {
 		.setName('imagine')
 		.setDescription('Generates an image based on your text')
 		.addStringOption(option => option.setName('prompt').setDescription('Your prompt for the image to generate').setRequired(true))
-		.addStringOption(option => option.setName('style').setDescription('The style of image to generate (1 to 105').setRequired(false))
-		.addBooleanOption(option => option.setName('quality').setDescription('Set to true to run at Quality instead of Speed').setRequired(false))
+		.addStringOption(option => option.setName('style').setDescription('The style of image to generate (1 to 105)').setRequired(false))
+		.addStringOption(option => option.setName('speed').setDescription('Faster speeds may lessen quality and vice versa').setRequired(false)
+			/* Display speed choices with faster options first to encourage users to pick those */
+			.addChoices({
+				name: 'HyperSD (8x Speed)',
+				value: 'HyperSD'
+			},{
+				name: 'Lightning (4x Speed)',
+				value: 'Lightning'
+			},{
+				name: 'ExtremeSpeed (2x Speed)',
+				value: 'ExtremeSpeed'
+			},{
+				name: 'Speed (1x Speed)',
+				value: 'Speed'
+			},{
+				name: 'Quality (0.5x Speed)',
+				value: 'Quality'
+			})
+		)		
 		.addStringOption(option => option.setName('seed').setDescription('The seed to use for the image').setRequired(false))
 		.addStringOption(option => option.setName('negative').setDescription('Negative prompt for the image').setRequired(false)),
 	async execute(interaction) {
@@ -169,15 +219,17 @@ module.exports = {
 			repl += ' `Seed: ' + interaction.options.getString('seed') + "`,"
 		}
 		
-		if (interaction.options.getBoolean('quality')) {
-			repl += ' `High Quality`,'
+		if (interaction.options.getString('speed')) {
+			repl += interaction.options.getString('speed')
+		} else {
+			repl += ' Speed: ' + defaultPerformance
 		}
 		
 		await interaction.reply(repl);
 
 		const start = new Date().getTime();
 		
-		const imagejson = await run(interaction.options.getString('prompt'), interaction.options.getString('style'), interaction.options.getBoolean('quality'), interaction.options.getString('seed'), interaction.options.getString('negative'));
+		const imagejson = await run(interaction.options.getString('prompt'), interaction.options.getString('style'), interaction.options.getString('speed'), interaction.options.getString('seed'), interaction.options.getString('negative'));
 		const name = interaction.user.username;
 
 		if (imagejson == "Error: Already running") {

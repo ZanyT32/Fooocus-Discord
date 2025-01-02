@@ -2,7 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discor
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 
-const url = process.env.URL;
+const url = process.env.fooocusURL;
 let running = false;
 
 let ADVANCED_CHECKBOX = "#component-23 > label > input"

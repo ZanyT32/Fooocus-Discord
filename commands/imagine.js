@@ -5,12 +5,17 @@ const fs = require('fs');
 const url = process.env.URL;
 let running = false;
 
-let ADVANCED_CHECKBOX = "#component-14 > label > input";
-let QUALITY_RADIOBOX = "[data-testid='Quality-radio-label']";
-let IMAGE_AMOUNT = "[data-testid='number-input']";
-let SEED_BOX = "#component-38 > label > input"
-let SEED_INPUT = "#component-39 > label > input"
-let NEGATIVE_INPUT = "#component-37 > label > textarea"
+let ADVANCED_CHECKBOX = "#component-23 > label > input"
+let QUALITY_RADIOBOX = "[data-testid='Quality-radio-label']"
+let IMAGE_AMOUNT = "#component-221 > div > div > input[type='number']"
+let SEED_BOX = "#component-224 > label > input"
+let SEED_INPUT = "#component-225 > label > input"
+let NEGATIVE_INPUT = "#negative_prompt > label > textarea"
+let PROMPT_BOX = "[data-testid='textbox']"
+let GENERATE_BUTTON = "#generate_button"
+let GENERATED_IMAGE = "div#final_gallery > div.grid-wrap > div.grid-container > button.thumbnail-item > img"
+let STYLE_TAB = "#component-335 > .tab-nav > button:nth-child(2)"
+let STYLE_CHECKBOX = "#component-231 > div[data-testid='checkbox-group'] > label:nth-child({n}) > input"
 
 async function run (withPrompt, styleId = 1, quality = false, seedCustom = -1, negative = null) {
 	if (running) {
@@ -30,8 +35,8 @@ async function run (withPrompt, styleId = 1, quality = false, seedCustom = -1, n
 	const page = await browser.newPage();
 	await page.setViewport({ width: 1920, height: 1080 });
     await page.goto(url);
-	await page.waitForSelector("[data-testid='textbox']");
-	await page.type("[data-testid='textbox']", withPrompt);
+	await page.waitForSelector(PROMPT_BOX);
+	await page.type(PROMPT_BOX, withPrompt);
 	
 	//open advanced tab by checking the checkbox
 	await page.waitForSelector(ADVANCED_CHECKBOX);
@@ -47,18 +52,6 @@ async function run (withPrompt, styleId = 1, quality = false, seedCustom = -1, n
 			e.click()
 		})
 	}
-	console.log("styling with id: " + styleId)
-
-	// //input the style of image to generate
-	try {
-		await page.waitForSelector("#component-42 > div.wrap.svelte-1qxcj04 > label:nth-child(" + styleId + ")");
-		await page.$eval("#component-42 > div.wrap.svelte-1qxcj04 > label:nth-child(" + styleId + ")", (e) => {
-			e.click()
-		})
-	}
-	catch (e) {
-		console.log("button not found")
-	}
 
 	if (seedCustom != -1) {
 		console.log("setting seed to: " + seedCustom)
@@ -68,10 +61,6 @@ async function run (withPrompt, styleId = 1, quality = false, seedCustom = -1, n
 		})
 
 		await page.waitForSelector(SEED_INPUT);
-		// await page.$eval(SEED_INPUT, (e, seedCustom) => {
-		// 	// e.click()
-		// 	e.value = seedCustom
-		// }, seedCustom)
 		await page.click(SEED_INPUT, {clickCount: 3})
 		await page.type(SEED_INPUT, seedCustom);
 
@@ -86,23 +75,39 @@ async function run (withPrompt, styleId = 1, quality = false, seedCustom = -1, n
 
 	//change the amount of images generated
 	await page.waitForSelector(IMAGE_AMOUNT)
-	await page.click(IMAGE_AMOUNT)
+	await page.click(IMAGE_AMOUNT);
 	await page.keyboard.press('Backspace');
 	await page.type(IMAGE_AMOUNT, "1");
 
+	console.log("styling with id: " + styleId)
+
+	// //input the style of image to generate
+	try {
+		await page.waitForSelector(STYLE_TAB);
+		await page.$eval(STYLE_TAB, (e) => {
+			e.click()
+		})
+
+		let curStyleCheckbox = STYLE_CHECKBOX.replace('{n}', styleId);
+		await page.waitForSelector(curStyleCheckbox);
+		await page.$eval(curStyleCheckbox, (e) => {
+			e.click()
+		})
+	}
+	catch (e) {
+		console.log("button not found");
+	}
+
 	//click button to generate, wait for image to generate
-	await page.click("#component-10");
-	
-	//nth child to change to for loop
-	await page.waitForSelector("#component-5 > div.grid-wrap.svelte-1a6pxdl > div > button:nth-child(1)", {timeout:0});
-	await page.click("#component-5 > div.grid-wrap.svelte-1a6pxdl > div > button:nth-child(1)");
-	await page.waitForSelector("#component-5 > div.preview.svelte-1a6pxdl > img");
-	
+	await page.click(GENERATE_BUTTON);
+
 	//grab the src from the img
-	const src = await page.evaluate(() => {
-		const img = document.querySelector('#component-5 > div.preview.svelte-1a6pxdl > img');
-		return img.src;
-	});
+	await page.waitForSelector(GENERATED_IMAGE, {timeout: 0});
+	const src = await page.evaluate((selector) => {
+		console.log(selector);		
+		const imgSrc = document.querySelector(selector).src;
+		return imgSrc;
+	}, GENERATED_IMAGE);
 
 	let seed = -1
 	//get the seed if possible

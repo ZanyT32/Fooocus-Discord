@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const puppeteer = require('puppeteer');
 const fs = require('fs');
-
+const styles = require('../../common/fooocusStyles');
 const url = process.env.fooocusURL;
 let running = false;
 
@@ -32,26 +32,27 @@ const FooocusPerformance = {
 	Configuration values
 */
 
-// How long to let fooocus generate an image before timing out in milliseconds
-// ---
+// ---How long to let fooocus generate an image before timing out in milliseconds
+// -----
 let generateTimeout = 0 // No timeout
 //let generateTimeout = 120000 // 2 minute timeout
 
-// Default performance option, determines speed of generation, faster settings may lessen quality
-// ---
+// --- Default performance option, determines speed of generation, faster settings may lessen quality
+// -----
 //let defaultPerformance = 'Quality' // Quality: 0.5x speed (60 iterations)
 //let defaultPerformance = 'Speed' // Speed: base performance with 30 iterations
 //let defaultPerformance = 'ExtremeSpeed' // Extreme Speed: 2x speed (15 iterations)
 let defaultPerformance = 'Lightning' // Lightning: 3.75x speed (8 iterations)
 //let defaultPerformance = 'HyperSD' // Hyper-SD: 7.5x speed (4 iterations), requires Hyper SD lora which will download on first use if not already downloaded
 
-async function run (withPrompt, styleId = 1, performance, seedCustom = -1, negative = null) {
+async function run (withPrompt, styleId, performance, seedCustom = -1, negative = null) {
 	if (running) {
 		return "Error: Already running"
 	}
-	if (styleId == null) {
+	
+	/*if (styleId == null) {
 		styleId = 1
-	}
+	}*/
 
 	if (seedCustom == null) {
 		seedCustom = -1
@@ -67,6 +68,14 @@ async function run (withPrompt, styleId = 1, performance, seedCustom = -1, negat
 	const page = await browser.newPage();
 	await page.setViewport({ width: 1920, height: 1080 });
     await page.goto(url);
+
+	//used when debugging to allow console.log inside page.evaluate() to output to hte Node terminal
+	/*page.on('console', async (msg) => {
+        const msgArgs = msg.args();
+        const logValues = await Promise.all(msgArgs.map(async arg => await arg.jsonValue()));
+        console.log(...logValues);
+    });*/
+
 	await page.waitForSelector(PROMPT_BOX);
 	await page.type(PROMPT_BOX, withPrompt);
 	
@@ -111,24 +120,35 @@ async function run (withPrompt, styleId = 1, performance, seedCustom = -1, negat
 	await page.keyboard.press('Backspace');
 	await page.type(IMAGE_AMOUNT, "1");
 
-	console.log("styling with id: " + styleId)
-
 	// //input the style of image to generate
-	try {
-		await page.waitForSelector(STYLE_TAB);
-		await page.$eval(STYLE_TAB, (e) => {
-			e.click()
-		})
+	if (styleId != null) {
+		try {
+			await page.waitForSelector(STYLE_TAB);
+			await page.$eval(STYLE_TAB, (e) => {
+				e.click()
+			})
+	
+			// Remove the default fooocus styles and add the chosen style
+			await page.evaluate((styleId) => {
+				const labels = document.querySelectorAll('#component-231 > div[data-testid="checkbox-group"] > label');
+				for (let label of labels) {
+					if (label.innerHTML.includes(styleId)) {
+						label.click();
+					} else if (label.innerHTML.includes('Fooocus V2')){
+						label.click();
+					} else if (label.innerHTML.includes('Fooocus Enhance')){
+						label.click();
+					} else if (label.innerHTML.includes('Fooocus Sharp')){
+						label.click();
+					}
+				}
+			}, styleId);
+		}
+		catch (e) {
+			console.log("unable to apply style");
+		}
+	}
 
-		let curStyleCheckbox = STYLE_CHECKBOX.replace('{n}', styleId);
-		await page.waitForSelector(curStyleCheckbox);
-		await page.$eval(curStyleCheckbox, (e) => {
-			e.click()
-		})
-	}
-	catch (e) {
-		console.log("button not found");
-	}
 
 	//click button to generate, wait for image to generate
 	await page.click(GENERATE_BUTTON);
@@ -179,7 +199,17 @@ module.exports = {
 		.setName('imagine')
 		.setDescription('Generates an image based on your text')
 		.addStringOption(option => option.setName('prompt').setDescription('Your prompt for the image to generate').setRequired(true))
-		.addStringOption(option => option.setName('style').setDescription('The style of image to generate (1 to 105)').setRequired(false))
+		.addStringOption(option => {
+			option.setName('style')
+				.setDescription('The style of image to generate (1 to 105)')
+				.setRequired(false);
+
+			styles.forEach(style => {
+				option.addChoices({name: style.name, value: style.name})
+			})
+
+			return option;
+		})
 		.addStringOption(option => option.setName('speed').setDescription('Faster speeds may lessen quality and vice versa').setRequired(false)
 			/* Display speed choices with faster options first to encourage users to pick those */
 			.addChoices({
@@ -202,7 +232,12 @@ module.exports = {
 		.addStringOption(option => option.setName('seed').setDescription('The seed to use for the image').setRequired(false))
 		.addStringOption(option => option.setName('negative').setDescription('Negative prompt for the image').setRequired(false)),
 	async execute(interaction) {
-        //time the start and end
+		// >256 characters will crash
+		if (interaction.options.getString('prompt').length > 256){
+			await interaction.reply("Prompt must be 256 characters or less.");
+			return
+		}
+
 		let repl = 'Generating for Prompt: `' + interaction.options.getString('prompt') + "`"
 		
 		if (interaction.options.getString('negative')) {

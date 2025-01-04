@@ -1,54 +1,29 @@
-const fs = require('fs');
-const path = require('path');
-const { Client, Collection, Events, GatewayIntentBits } = require('discord.js');
-
-//dotenv
+console.log('Initializing');
 require('dotenv').config();
-const token = process.env.DISCORD_TOKEN;
-
-// Create a new client instance
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const { DISCORD_TOKEN } = process.env;
+const { Client, Collection, GatewayIntentBits } = require('discord.js');
+const { REST } = require('@discordjs/rest');
+const { on } = require('events');
+const fs = require('fs');
+const client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent
+    ]
+  });
 client.commands = new Collection();
-// When the client is ready, run this code (only once)
-// We use 'c' for the event parameter to keep it separate from the already defined 'client'
-client.once(Events.ClientReady, c => {
-	console.log(`Ready! Logged in as ${c.user.tag}`);
-});
+client.commandArray = [];
 
-const commandsPath = path.join(__dirname, 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-
-for (const file of commandFiles) {
-	const filePath = path.join(commandsPath, file);
-	const command = require(filePath);
-	// Set a new item in the Collection with the key as the command name and the value as the exported module
-	if ('data' in command && 'execute' in command) {
-		client.commands.set(command.data.name, command);
-	} else {
-		console.log(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
-	}
+console.log('Loading functions');
+const functionFolders = fs.readdirSync('./src/functions');
+for (const folder of functionFolders) {
+    const functionFiles = fs.readdirSync(`./src/functions/${folder}`).filter(file => file.endsWith('.js'));
+    for (const file of functionFiles) {
+        require(`./functions/${folder}/${file}`)(client);
+    }
 }
 
-client.on(Events.InteractionCreate, async interaction => {
-	if (!interaction.isChatInputCommand()) return;
-
-	const command = interaction.client.commands.get(interaction.commandName);
-
-	if (!command) {
-		console.error(`No command matching ${interaction.commandName} was found.`);
-		return;
-	}
-
-	try {
-		await command.execute(interaction);
-	} catch (error) {
-		console.error(error);
-		if (interaction.replied || interaction.deferred) {
-			await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
-		} else {
-			await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
-		}
-	}
-});
-// Log in to Discord with your client's token
-client.login(token);
+client.handleEvents();
+client.handleCommands();
+client.login(DISCORD_TOKEN);

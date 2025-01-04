@@ -46,9 +46,9 @@ let defaultPerformance = 'Lightning' // Lightning: 3.75x speed (8 iterations)
 //let defaultPerformance = 'HyperSD' // Hyper-SD: 7.5x speed (4 iterations), requires Hyper SD lora which will download on first use if not already downloaded
 
 async function run (withPrompt, styleId, performance, seedCustom = -1, negative = null) {
-	if (running) {
+	/*if (running) {
 		return "Error: Already running"
-	}
+	}*/
 	
 	/*if (styleId == null) {
 		styleId = 1
@@ -228,70 +228,78 @@ module.exports = {
 				name: 'Quality (0.5x Speed)',
 				value: 'Quality'
 			})
-		)		
+		)	
 		.addStringOption(option => option.setName('seed').setDescription('The seed to use for the image').setRequired(false))
 		.addStringOption(option => option.setName('negative').setDescription('Negative prompt for the image').setRequired(false)),
 	async execute(interaction) {
+		// --- Validation
+		// -----
+
 		// >256 characters will crash
 		if (interaction.options.getString('prompt').length > 256){
 			await interaction.reply("Prompt must be 256 characters or less.");
 			return
 		}
 
-		let repl = 'Generating for Prompt: `' + interaction.options.getString('prompt') + "`"
-		
-		if (interaction.options.getString('negative')) {
-			repl += ' `(-' + interaction.options.getString('negative') + ")`"
-		}
+		const name = interaction.user.username;
 
-		repl += '\nOptions:'
 
-		if (interaction.options.getString('style')) {
-			repl += ' `Style: ' + interaction.options.getString('style') + "`,"
-		}
 
-		if (interaction.options.getString('seed')) {
-			repl += ' `Seed: ' + interaction.options.getString('seed') + "`,"
-		}
-		
-		if (interaction.options.getString('speed')) {
-			repl += interaction.options.getString('speed')
-		} else {
-			repl += ' Speed: ' + defaultPerformance
-		}
+		// --- Send an initial response to the user to let them know their image is on the way
+		// -----
+		let repl = 'Your image is on its way!\n\n' 
+		repl += 'Prompt: `' + interaction.options.getString('prompt') + "`\n"
+		repl += `Negative: ${ interaction.options.getString('negative') ? "`" + interaction.options.getString('negative') + "`" : "N/A"}` + "\n"
+		repl += `Style: ${ interaction.options.getString('style') ? "`" + interaction.options.getString('style')  + "`" : "N/A"}` + "\n"
+		repl += `Speed: ${ interaction.options.getString('speed') ? "`" + interaction.options.getString('speed') + "`" : "`" + defaultPerformance + "`"}`  + "\n"
 		
 		await interaction.reply(repl);
 
-		const start = new Date().getTime();
-		
-		const imagejson = await run(interaction.options.getString('prompt'), interaction.options.getString('style'), interaction.options.getString('speed'), interaction.options.getString('seed'), interaction.options.getString('negative'));
-		const name = interaction.user.username;
 
-		if (imagejson == "Error: Already running") {
-			await interaction.editReply("Please wait for the previous image to finish generating!");
-			return
-		}
-		const image = imagejson.filename;
-		const seed = imagejson.seed;
-		//attachment builder
-		const attachment = new AttachmentBuilder(image);
-		
-		//end
+
+		// --- Generate image
+		// ----
+		const start = new Date().getTime();
+		const imagejson = await run(
+			interaction.options.getString('prompt'), 
+			interaction.options.getString('style'), 
+			interaction.options.getString('speed'), 
+			interaction.options.getString('seed'), 
+			interaction.options.getString('negative')
+		);
 		const end = new Date().getTime();
 
-		//total seconds
-		const total = (end - start) / 1000;
+		const image = imagejson.filename;
+		const seed = imagejson.seed;
+		const attachment = new AttachmentBuilder(image);
+		
 
+		
+		// --- Response
+		// ----
+
+		//Calculate and format generation time
+		const totalSec = (end - start) / 1000;
+		let totalStr = '';
+		if (totalSec > 60) {
+			let mins = Math.floor(totalSec / 60)
+			let remainSec = totalSec - (mins * 60)
+			totalStr = `${mins}m ${remainSec.toFixed(1)}s`
+		} else {
+			totalStr = totalSec.toFixed(1) + 's';
+		}
+
+		//Build response embed
 		let embed = new EmbedBuilder()
         .setColor("Random")
-        // .setAuthor({ name: interaction.user.username, iconURL: interaction.user.avatarURL() })
         .setAuthor({ name: name, iconURL: interaction.user.avatarURL() })
         .setTitle(`${interaction.options.getString('prompt')} ${ interaction.options.getString('negative') ? "(-" + interaction.options.getString('negative') + ")": ""}`)
-		.setDescription(`Took ${total} seconds, using seed: ${seed}`)
+		.setDescription(`Time: ${totalStr}\nSeed: ${seed}`)
         .setImage(`attachment://${image.substring(9)}`)
         .setFooter({ text: `${name} used /imagine`, iconURL: interaction.user.avatarURL() })
         .setTimestamp()
 
-		await interaction.editReply({ embeds: [embed], files: [attachment] });
+		// Send image
+		await interaction.followUp({ content: `${interaction.user} your image is ready!`, embeds: [embed], files: [attachment] });
 	},
 };

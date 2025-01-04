@@ -107,7 +107,7 @@ async function run (withPrompt, styleId, performance, seedCustom = -1, negative 
 
 	}
 
-	if (negative != null) {
+	if (negative != null && ['Quality', 'Speed'].includes(performance)) {
 		await page.waitForSelector(NEGATIVE_INPUT);
 		
 		await page.click(NEGATIVE_INPUT, {clickCount: 3})
@@ -249,11 +249,16 @@ module.exports = {
 		// -----
 		let repl = 'Your image is on its way!\n\n' 
 		repl += 'Prompt: `' + interaction.options.getString('prompt') + "`\n"
-		repl += `Negative: ${ interaction.options.getString('negative') ? "`" + interaction.options.getString('negative') + "`" : "N/A"}` + "\n"
-		repl += `Style: ${ interaction.options.getString('style') ? "`" + interaction.options.getString('style')  + "`" : "N/A"}` + "\n"
+		repl += `Negative: ${ interaction.options.getString('negative') ? "`" + interaction.options.getString('negative') + "`" : "n/a"}` + "\n"
+		repl += `Style: ${ interaction.options.getString('style') ? "`" + interaction.options.getString('style')  + "`" : "n/a"}` + "\n"
 		repl += `Speed: ${ interaction.options.getString('speed') ? "`" + interaction.options.getString('speed') + "`" : "`" + defaultPerformance + "`"}`  + "\n"
 		
 		await interaction.reply(repl);
+
+		if (interaction.options.getString('negative') && !['Quality', 'Speed'].includes(interaction.options.getString('speed'))){
+			await interaction.followUp(
+				{content: 'You supplied a negative prompt, but chose a speed option that does not support negative prompts.\nImage will generate without negative.\nIf you would like to try again with a negative use `Quality` or `Speed`'})
+		}
 
 
 
@@ -293,8 +298,8 @@ module.exports = {
 		let embed = new EmbedBuilder()
         .setColor("Random")
         .setAuthor({ name: name, iconURL: interaction.user.avatarURL() })
-        .setTitle(`${interaction.options.getString('prompt')} ${ interaction.options.getString('negative') ? "(-" + interaction.options.getString('negative') + ")": ""}`)
-		.setDescription(`Time: ${totalStr}\nSeed: ${seed}`)
+        .setTitle(`${interaction.options.getString('prompt')}`)
+		.setDescription(`Time: ${totalStr}\nSeed: ${seed}\n${ interaction.options.getString('negative') ? "Negative: " + interaction.options.getString('negative') : ""}`)
         .setImage(`attachment://${image.substring(9)}`)
         .setFooter({ text: `${name} used /imagine`, iconURL: interaction.user.avatarURL() })
         .setTimestamp()

@@ -33,7 +33,17 @@ module.exports = {
 
             const interactionId = interaction.customId.split('-')[1];
             const options = interaction.client.optionsMap.get(interactionId);
-            imagine.run(interaction, options.prompt, options.style, options.speed, null, options.negative);
+            
+            let queueEntry ={
+                user: interaction.user.username,
+                interaction: interaction,
+                prompt: options.prompt,
+                negative: options.negative,
+                style: options.style,
+                speed: options.speed,
+                seed: null
+            }
+            imagine.processQueue(queueEntry);
         }
     }
 }

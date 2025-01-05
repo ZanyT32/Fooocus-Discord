@@ -4,7 +4,8 @@ const fs = require('fs');
 const styles = require('../common/fooocusStyles');
 const url = process.env.fooocusURL;
 let running = false;
-
+let queue = [];
+let processingQueue = false;
 /*
 	CSS Selectors for Puppeteer to use
 		May need updating in future to keep up with fooocus HTML/CSS
@@ -182,7 +183,7 @@ async function generateImage (withPrompt, styleId, performance, seedCustom = -1,
 	//as png file
 	//use a datetime filename into /output folder
 	const filename = `./output/${new Date().getTime()}.png`;
-	fs.writeFile(filename, await viewSource.buffer(), () => console.log('finished downloading!'));
+	fs.writeFile(filename, await viewSource.buffer(), (err) => err && console.error(err));
 
     browser.close();
 	running = false;
@@ -197,25 +198,6 @@ async function generateImage (withPrompt, styleId, performance, seedCustom = -1,
 async function run(interaction, prompt, style, performance, cmdSeed, negative){
 	
 	const name = interaction.user.username;
-
-	// --- Send an initial response to the user to let them know their image is on the way
-	// -----
-	let repl = 'Your image is on its way!\n\n' 
-	repl += 'Prompt: `' + prompt + "`\n"
-	repl += `Negative: ${ negative ? "`" + negative + "`" : "n/a"}` + "\n"
-	repl += `Style: ${ style ? "`" + style + "`" : "n/a"}` + "\n"
-	repl += `Speed: ${ performance ? "`" + performance + "`" : "`" + defaultPerformance + "`"}`  + "\n"
-	
-	if (interaction.replied || interaction.deferred) {
-		await interaction.followUp(repl);
-	} else {
-		await interaction.reply(repl);
-	}
-
-	if (negative && !['Quality', 'Speed'].includes(performance)){
-		await interaction.followUp(
-			{content: 'You supplied a negative prompt, but chose a speed option that does not support negative prompts.\nImage will generate without negative.\nIf you would like to try again with a negative use `Quality` or `Speed`'})
-	}
 
 
 
@@ -292,8 +274,88 @@ async function run(interaction, prompt, style, performance, cmdSeed, negative){
 	seed = '';
 }
 
+async function processQueue(queueEntry){
+	
+	// Add request to the queue
+	queue.push(queueEntry);
+
+	// --- Send an initial response to the user to let them know their image is on the way
+	// -----
+	let repl = `Your image is on its way!\n\n`
+	repl += 'Prompt: `' + queueEntry.prompt + "`\n"
+	repl += `Negative: ${ queueEntry.negative ? "`" + queueEntry.negative + "`" : "n/a"}` + "\n"
+	repl += `Style: ${ queueEntry.style ? "`" + queueEntry.style + "`" : "n/a"}` + "\n"
+	repl += `Speed: ${ queueEntry.performance ? "`" + queueEntry.performance + "`" : "`" + defaultPerformance + "`"}`  + "\n"
+	
+	if (queueEntry.interaction.replied || queueEntry.interaction.deferred) {
+		await queueEntry.interaction.followUp(repl);
+	} else {
+		await queueEntry.interaction.reply(repl);
+	}
+
+	if (queueEntry.negative && !['Quality', 'Speed'].includes(queueEntry.performance)){
+		await queueEntry.interaction.followUp(
+			{content: 'You supplied a negative prompt, but chose a speed option that does not support negative prompts.\nImage will generate without negative.\nIf you would like to try again with a negative use `Quality` or `Speed`'})
+	}
+
+
+		
+	// --- Balance queue by user
+	// -----
+	// Reduce queue into arrays of unique users
+	let reducedQueueArr = queue.reduce((acc, item) => {
+		acc[item.user] = acc[item.user] || [];
+		acc[item.user].push(item);
+		return acc;
+	}, {});
+
+	// Get the maximum array size
+	let maxLength = Math.max(...Object.values(reducedQueueArr).map(group => group.length));
+
+	// Balance
+	let newQueue = [];
+	for (let i = 0; i < maxLength; i++) {
+		for (let user of Object.keys(reducedQueueArr)) {
+			if (reducedQueueArr[user][i]) {
+				newQueue.push(reducedQueueArr[user][i]);
+			}
+		}
+	}
+	queue = newQueue;
+
+
+
+	// --- Process queue
+	// -----
+
+	// If the queue is already being processed, return
+	if (processingQueue) {
+		return;
+	}
+
+	// Set processing boolean
+	processingQueue = true;
+
+	// Process queue
+	try {
+		while (queue.length > 0) {
+			
+			console.log('\nProcessing queue:')
+			for (i = 0; i < queue.length; i++) {
+				console.log(`\t${i+1}: ${queue[i].user}, ${queue[i].prompt}`)
+			}
+			curQueue = queue.shift();
+			await run(curQueue.interaction, curQueue.prompt, curQueue.style, curQueue.performance, curQueue.seed, curQueue.negative);
+		}
+	} catch (error) {
+		console.log(error);
+	} finally {
+		processingQueue = false;
+	}
+}
+
 module.exports = {
-	run,
+	processQueue,
 	data: new SlashCommandBuilder()
 		.setName('imagine')
 		.setDescription('Generates an image based on your text')
@@ -347,7 +409,18 @@ module.exports = {
 		let speed = interaction.options.getString('speed');
 		let cmdSeed = interaction.options.getString('seed');
 
-		await run(interaction, prompt, style, speed, cmdSeed, negative);
+		let queueEntry ={
+			user: interaction.user.username,
+			interaction: interaction,
+			prompt: prompt,
+			negative: negative,
+			style: style,
+			speed: speed,
+			seed: cmdSeed
+		}
+
+		processQueue(queueEntry);
+		//await run(interaction, prompt, style, speed, cmdSeed, negative);
 
 	},
 };
